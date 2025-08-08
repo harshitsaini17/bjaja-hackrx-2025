@@ -18,11 +18,5 @@
   "env": {
     "PYTHON_VERSION": "3.12",
     "APP_MODULE": "main:app"
-  },
-  "functions": {
-    "main.py": {
-      "maxDuration": 60,
-      "memory": 1024
-    }
   }
 }
