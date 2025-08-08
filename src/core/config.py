@@ -1,17 +1,19 @@
 """
 Core configuration settings for the LLM Document Retrieval System
+OPTIMIZED VERSION - Improved for better retrieval accuracy
 """
 
 import os
 from typing import Optional
+
 try:
     from pydantic_settings import BaseSettings
 except ImportError:
     from pydantic import BaseSettings
+
 from dotenv import load_dotenv
 
 load_dotenv()
-
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables"""
@@ -45,28 +47,47 @@ class Settings(BaseSettings):
     USE_FAISS: bool = os.getenv("USE_FAISS", "false").lower() == "true"
     FAISS_INDEX_PATH: str = os.getenv("FAISS_INDEX_PATH", "./data/faiss_index")
     
-    # Document Processing Configuration
+    # Document Processing Configuration - OPTIMIZED
     MAX_DOCUMENT_SIZE_MB: int = 50
-    CHUNK_SIZE: int = 512
-    CHUNK_OVERLAP: int = 50
-    MAX_CHUNKS_PER_DOCUMENT: int = 500
+    CHUNK_SIZE: int = 256  # Reduced for better granularity
+    CHUNK_OVERLAP: int = 64  # Increased overlap for better context
+    MAX_CHUNKS_PER_DOCUMENT: int = 800  # Increased limit
     
-    # LLM Configuration
-    LLM_MAX_TOKENS: int = 500  # Increased for better responses
+    # Advanced Chunking Configuration
+    ENABLE_SEMANTIC_CHUNKING: bool = True
+    SENTENCE_OVERLAP: int = 2  # Sentences to overlap between chunks
+    MIN_CHUNK_SIZE: int = 100  # Minimum chunk size in characters
+    MAX_CHUNK_SIZE: int = 800  # Maximum chunk size in characters
+    
+    # LLM Configuration - OPTIMIZED
+    LLM_MAX_TOKENS: int = 800  # Increased for better responses
     LLM_TEMPERATURE: float = 0.1
-    LLM_TIMEOUT_SECONDS: int = 15  # Increased timeout for LangChain reliability
-    MAX_RETRIES: int = 2
+    LLM_TIMEOUT_SECONDS: int = 15
+    MAX_RETRIES: int = 3  # Increased retries
     
-    # Performance Configuration
+    # Performance Configuration - OPTIMIZED
     MAX_CONCURRENT_QUESTIONS: int = 10
     REQUEST_TIMEOUT_SECONDS: int = 30
     TARGET_RESPONSE_TIME_SECONDS: int = 25
     
-    # Embedding Configuration
-    EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
-    EMBEDDING_DIMENSION: int = 384
-    SIMILARITY_THRESHOLD: float = 0.05  # Lower threshold for better results
-    TOP_K_RESULTS: int = 5
+    # Embedding Configuration - OPTIMIZED
+    EMBEDDING_MODEL: str = "azure_openai"
+    EMBEDDING_DIMENSION: int = 1536  # Fixed for OpenAI
+    SIMILARITY_THRESHOLD: float = 0.15  # CRITICAL FIX: More permissive threshold
+    TOP_K_RESULTS: int = 8  # CRITICAL FIX: More candidates
+    RERANK_TOP_K: int = 20  # For multi-stage retrieval
+    
+    # Context Window Configuration - OPTIMIZED
+    MAX_CONTEXT_TOKENS: int = 3000  # CRITICAL FIX: Larger context window
+    CONTEXT_BUFFER_TOKENS: int = 500  # Reserve tokens for question/response
+    ENABLE_CONTEXT_COMPRESSION: bool = True
+    
+    # Multi-Stage Retrieval Configuration
+    ENABLE_HYBRID_RETRIEVAL: bool = True
+    ENABLE_QUERY_EXPANSION: bool = True
+    ENABLE_RERANKING: bool = True
+    BM25_WEIGHT: float = 0.3  # Weight for keyword search in hybrid retrieval
+    SEMANTIC_WEIGHT: float = 0.7  # Weight for semantic search
     
     # MongoDB Configuration (optional for caching)
     MONGODB_URL: Optional[str] = os.getenv("MONGODB_URL")
@@ -88,35 +109,56 @@ class Settings(BaseSettings):
     RATE_LIMIT_PER_MINUTE: int = 60
     RATE_LIMIT_BURST: int = 10
     
-    # Error Handling
+    # Error Handling - OPTIMIZED
     MAX_RETRY_ATTEMPTS: int = 3
     RETRY_DELAY_SECONDS: float = 1.0
+    ENABLE_FALLBACK_THRESHOLD: bool = True
+    FALLBACK_SIMILARITY_THRESHOLD: float = 0.05  # Emergency fallback
     
-    # Domain-specific Configuration
+    # Domain-specific Configuration - EXPANDED
     INSURANCE_KEYWORDS: list = [
         "premium", "coverage", "deductible", "claim", "policy", "benefit",
-        "exclusion", "waiting period", "grace period", "maternity", "pre-existing"
+        "exclusion", "waiting period", "grace period", "maternity", "pre-existing",
+        "copayment", "coinsurance", "network", "provider", "preauthorization",
+        "rider", "endorsement", "renewal", "lapse", "reinstatement", "hospitalization",
+        "surgery", "treatment", "diagnosis", "medication", "therapy", "rehabilitation"
     ]
     
     LEGAL_KEYWORDS: list = [
         "contract", "agreement", "clause", "liability", "indemnity", "warranty",
-        "breach", "termination", "dispute", "jurisdiction", "governing law"
+        "breach", "termination", "dispute", "jurisdiction", "governing law",
+        "arbitration", "mediation", "damages", "remedy", "obligation", "right",
+        "duty", "performance", "default", "force majeure", "assignment", "novation"
     ]
     
     HR_KEYWORDS: list = [
         "employee", "salary", "benefits", "leave", "termination", "performance",
-        "promotion", "disciplinary", "grievance", "policy", "procedure"
+        "promotion", "disciplinary", "grievance", "policy", "procedure",
+        "compensation", "bonus", "incentive", "appraisal", "training", "development",
+        "harassment", "discrimination", "safety", "wellness", "retirement", "health"
     ]
     
     COMPLIANCE_KEYWORDS: list = [
         "regulation", "compliance", "audit", "reporting", "disclosure",
-        "penalty", "violation", "requirement", "standard", "certification"
+        "penalty", "violation", "requirement", "standard", "certification",
+        "governance", "oversight", "monitoring", "assessment", "risk", "control",
+        "documentation", "record", "evidence", "investigation", "enforcement"
     ]
+    
+    # Query Enhancement Configuration
+    QUERY_EXPANSION_TERMS: int = 5  # Number of terms to add per query
+    ENABLE_SYNONYM_EXPANSION: bool = True
+    ENABLE_DOMAIN_EXPANSION: bool = True
+    
+    # Answer Quality Configuration
+    ENABLE_ANSWER_VALIDATION: bool = True
+    MIN_ANSWER_CONFIDENCE: float = 0.3
+    ENABLE_SOURCE_VERIFICATION: bool = True
+    MAX_SOURCE_DISTANCE: float = 0.8  # Maximum semantic distance for source attribution
 
     class Config:
         env_file = ".env"
         case_sensitive = True
-
 
 # Global settings instance
 settings = Settings()
