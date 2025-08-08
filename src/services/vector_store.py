@@ -157,6 +157,71 @@ class HybridRetriever:
         # Sort by RRF score
         sorted_results = sorted(fused_scores.values(), key=lambda x: x[1], reverse=True)
         return sorted_results
+    
+    @staticmethod
+    def reciprocal_rank_fusion_optimized(
+        semantic_results: List[Tuple[DocumentChunk, float]], 
+        keyword_results: List[Tuple[DocumentChunk, float]], 
+        semantic_weight: float = 0.6,
+        keyword_weight: float = 0.4,
+        k: int = 60
+    ) -> List[Tuple[DocumentChunk, float]]:
+        """Optimized Reciprocal Rank Fusion with weighted scoring"""
+        
+        fusion_start = time.time()
+        
+        # Create dictionaries for efficient lookup using chunk content hash
+        semantic_dict = {}
+        keyword_dict = {}
+        
+        for i, (chunk, score) in enumerate(semantic_results):
+            chunk_key = hash(chunk.content)
+            semantic_dict[chunk_key] = (chunk, score, i)
+        
+        for i, (chunk, score) in enumerate(keyword_results):
+            chunk_key = hash(chunk.content)
+            keyword_dict[chunk_key] = (chunk, score, i)
+        
+        # Get all unique chunks
+        all_chunk_keys = set(semantic_dict.keys()) | set(keyword_dict.keys())
+        
+        # Calculate optimized RRF scores
+        fused_scores = {}
+        
+        for chunk_key in all_chunk_keys:
+            rrf_score = 0.0
+            
+            # Add semantic rank contribution with score boost
+            if chunk_key in semantic_dict:
+                chunk, sem_score, sem_rank = semantic_dict[chunk_key]
+                # Combine rank-based and score-based weighting
+                rank_component = semantic_weight / (k + sem_rank + 1)
+                score_component = semantic_weight * sem_score * 0.1  # Score boost
+                rrf_score += rank_component + score_component
+            
+            # Add keyword rank contribution with score boost
+            if chunk_key in keyword_dict:
+                chunk, kw_score, kw_rank = keyword_dict[chunk_key]
+                # Combine rank-based and score-based weighting
+                rank_component = keyword_weight / (k + kw_rank + 1)
+                score_component = keyword_weight * kw_score * 0.1  # Score boost
+                rrf_score += rank_component + score_component
+            
+            # Bonus for appearing in both results (intersection boost)
+            if chunk_key in semantic_dict and chunk_key in keyword_dict:
+                rrf_score *= 1.2  # 20% boost for dual appearance
+            
+            # Store the chunk and score
+            chunk = semantic_dict.get(chunk_key, keyword_dict.get(chunk_key))[0]
+            fused_scores[chunk_key] = (chunk, rrf_score)
+        
+        # Sort by optimized RRF score
+        sorted_results = sorted(fused_scores.values(), key=lambda x: x[1], reverse=True)
+        
+        fusion_time = time.time() - fusion_start
+        logger.debug(f"Optimized RRF fusion completed in {fusion_time:.3f}s: {len(sorted_results)} results")
+        
+        return sorted_results
 
 class QueryExpander:
     """Enhanced query expansion using domain knowledge"""
@@ -322,24 +387,83 @@ class VectorStoreService:
             raise
     
     async def generate_embeddings(self, texts: List[str]) -> List[List[float]]:
-        """Generate embeddings for a list of texts"""
+        """Generate embeddings for a list of texts with parallel processing"""
         if not texts:
             return []
         
+        start_time = time.time()
+        logger.debug(f"Starting parallel embedding generation for {len(texts)} texts")
+        
         try:
-            # Use Azure OpenAI embeddings
-            embeddings = await self._generate_openai_embeddings(texts)
-            logger.info(f"Generated {len(embeddings)} embeddings")
+            # Use parallel processing for faster embedding generation
+            embeddings = await self._generate_openai_embeddings_parallel(texts)
+            
+            generation_time = time.time() - start_time
+            logger.info(f"Generated {len(embeddings)} embeddings in {generation_time:.3f}s ({len(texts)/generation_time:.1f} texts/sec)")
             return embeddings
             
         except Exception as e:
-            logger.error(f"Failed to generate embeddings: {str(e)}")
+            generation_time = time.time() - start_time
+            logger.error(f"Failed to generate embeddings after {generation_time:.3f}s: {str(e)}")
             raise
     
-    async def _generate_openai_embeddings(self, texts: List[str]) -> List[List[float]]:
-        """Generate embeddings using Azure OpenAI"""
+    async def _generate_openai_embeddings_parallel(self, texts: List[str]) -> List[List[float]]:
+        """Generate embeddings using Azure OpenAI with parallel processing"""
         try:
-            # Batch process texts
+            batch_size = settings.MAX_EMBEDDING_BATCH_SIZE
+            max_concurrent = settings.MAX_CONCURRENT_EMBEDDINGS
+            
+            # Split texts into batches
+            batches = [texts[i:i + batch_size] for i in range(0, len(texts), batch_size)]
+            logger.debug(f"Processing {len(batches)} batches with max {max_concurrent} concurrent requests")
+            
+            # Process batches with controlled concurrency
+            semaphore = asyncio.Semaphore(max_concurrent)
+            tasks = []
+            
+            for i, batch in enumerate(batches):
+                task = self._process_embedding_batch(semaphore, batch, i)
+                tasks.append(task)
+            
+            # Execute all tasks concurrently
+            batch_results = await asyncio.gather(*tasks)
+            
+            # Flatten results
+            all_embeddings = []
+            for batch_embeddings in batch_results:
+                all_embeddings.extend(batch_embeddings)
+            
+            return all_embeddings
+            
+        except Exception as e:
+            logger.error(f"Parallel OpenAI embedding generation failed: {str(e)}")
+            raise
+    
+    async def _process_embedding_batch(self, semaphore: asyncio.Semaphore, batch_texts: List[str], batch_idx: int) -> List[List[float]]:
+        """Process a single batch of embeddings with semaphore control"""
+        async with semaphore:
+            batch_start = time.time()
+            try:
+                response = self.openai_client.embeddings.create(
+                    model=settings.AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME,
+                    input=batch_texts
+                )
+                
+                batch_embeddings = [item.embedding for item in response.data]
+                batch_time = time.time() - batch_start
+                logger.debug(f"Batch {batch_idx} processed: {len(batch_texts)} texts in {batch_time:.3f}s")
+                
+                return batch_embeddings
+                
+            except Exception as e:
+                batch_time = time.time() - batch_start
+                logger.error(f"Batch {batch_idx} failed after {batch_time:.3f}s: {str(e)}")
+                raise
+    
+    async def _generate_openai_embeddings(self, texts: List[str]) -> List[List[float]]:
+        """Generate embeddings using Azure OpenAI (legacy sequential method)"""
+        try:
+            # Batch process texts sequentially (fallback)
             batch_size = 16
             all_embeddings = []
             
@@ -357,7 +481,7 @@ class VectorStoreService:
             return all_embeddings
             
         except Exception as e:
-            logger.error(f"OpenAI embedding generation failed: {str(e)}")
+            logger.error(f"Sequential OpenAI embedding generation failed: {str(e)}")
             raise
     
     async def store_document_chunks_for_request(
@@ -476,23 +600,43 @@ class VectorStoreService:
         query: str, 
         top_k: int
     ) -> List[Tuple[DocumentChunk, float]]:
-        """Perform hybrid semantic + keyword search"""
+        """Perform optimized hybrid semantic + keyword search with reranking"""
         
-        # Semantic search
-        semantic_results = await self._semantic_search_only(request_id, query, top_k)
+        search_start = time.time()
         
-        # Keyword search using hybrid retriever
+        # Two-stage retrieval as suggested
+        stage1_k = settings.HYBRID_TOP_K  # Get more candidates initially
+        
+        # Stage 1: Parallel semantic and keyword search
+        semantic_task = self._semantic_search_only(request_id, query, stage1_k)
+        
+        # Get keyword results
         hybrid_retriever = self.request_retrievers[request_id]
-        keyword_results = hybrid_retriever.keyword_search(query, top_k)
-        
-        # Fusion using Reciprocal Rank Fusion
-        fused_results = HybridRetriever.reciprocal_rank_fusion(
-            semantic_results, keyword_results
+        keyword_task = asyncio.create_task(
+            asyncio.to_thread(hybrid_retriever.keyword_search, query, stage1_k)
         )
         
-        logger.debug(f"Hybrid search: {len(semantic_results)} semantic + {len(keyword_results)} keyword → {len(fused_results)} fused")
+        # Execute searches in parallel
+        semantic_results, keyword_results = await asyncio.gather(semantic_task, keyword_task)
         
-        return fused_results[:top_k]
+        # Stage 2: Fusion using optimized Reciprocal Rank Fusion
+        fused_results = HybridRetriever.reciprocal_rank_fusion_optimized(
+            semantic_results, 
+            keyword_results,
+            semantic_weight=settings.SEMANTIC_WEIGHT,
+            keyword_weight=settings.BM25_WEIGHT
+        )
+        
+        # Stage 3: Reranking based on query-document relevance
+        if settings.ENABLE_RERANKING and len(fused_results) > settings.FINAL_TOP_K:
+            reranked_results = await self._rerank_results(query, fused_results, settings.FINAL_TOP_K)
+        else:
+            reranked_results = fused_results[:settings.FINAL_TOP_K]
+        
+        search_time = time.time() - search_start
+        logger.info(f"Hybrid search completed in {search_time:.3f}s: {len(semantic_results)} semantic + {len(keyword_results)} keyword → {len(reranked_results)} final results")
+        
+        return reranked_results[:top_k]
     
     async def _semantic_search_only(
         self, 
@@ -531,6 +675,69 @@ class VectorStoreService:
             results.append((chunk, score))
         
         return results
+    
+    async def _rerank_results(
+        self, 
+        query: str, 
+        results: List[Tuple[DocumentChunk, float]], 
+        top_k: int
+    ) -> List[Tuple[DocumentChunk, float]]:
+        """Rerank results based on query-document relevance"""
+        
+        if len(results) <= top_k:
+            return results
+        
+        rerank_start = time.time()
+        
+        try:
+            # Extract query terms for relevance scoring
+            query_terms = set(re.findall(r'\b\w+\b', query.lower()))
+            
+            # Calculate enhanced relevance scores
+            scored_results = []
+            for chunk, original_score in results:
+                # Combine multiple relevance signals
+                content_lower = chunk.content.lower()
+                
+                # Term frequency in document
+                doc_terms = re.findall(r'\b\w+\b', content_lower)
+                term_matches = sum(1 for term in doc_terms if term in query_terms)
+                tf_score = term_matches / len(doc_terms) if doc_terms else 0
+                
+                # Query term coverage
+                matched_query_terms = sum(1 for term in query_terms if term in content_lower)
+                coverage_score = matched_query_terms / len(query_terms) if query_terms else 0
+                
+                # Position bias (earlier chunks slightly preferred)
+                position_score = 1.0 / (1.0 + chunk.chunk_index * 0.01)
+                
+                # Length normalization (prefer medium-length chunks)
+                ideal_length = 400
+                length_score = 1.0 - abs(len(chunk.content) - ideal_length) / ideal_length * 0.1
+                length_score = max(0.5, length_score)
+                
+                # Combined relevance score
+                relevance_score = (
+                    original_score * 0.5 +  # Original semantic/keyword score
+                    tf_score * 0.2 +        # Term frequency
+                    coverage_score * 0.2 +  # Query coverage
+                    position_score * 0.05 + # Position bias
+                    length_score * 0.05     # Length normalization
+                )
+                
+                scored_results.append((chunk, relevance_score))
+            
+            # Sort by enhanced relevance score
+            scored_results.sort(key=lambda x: x[1], reverse=True)
+            
+            rerank_time = time.time() - rerank_start
+            logger.debug(f"Reranking completed in {rerank_time:.3f}s: {len(results)} → {top_k} results")
+            
+            return scored_results[:top_k]
+            
+        except Exception as e:
+            logger.error(f"Reranking failed: {e}, returning original results")
+            return results[:top_k]
     
     def _apply_adaptive_threshold(
         self, 

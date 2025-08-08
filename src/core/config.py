@@ -47,17 +47,17 @@ class Settings(BaseSettings):
     USE_FAISS: bool = os.getenv("USE_FAISS", "false").lower() == "true"
     FAISS_INDEX_PATH: str = os.getenv("FAISS_INDEX_PATH", "./data/faiss_index")
     
-    # Document Processing Configuration - OPTIMIZED
+    # Document Processing Configuration - OPTIMIZED FOR SPEED
     MAX_DOCUMENT_SIZE_MB: int = 50
-    CHUNK_SIZE: int = 256  # Reduced for better granularity
-    CHUNK_OVERLAP: int = 64  # Increased overlap for better context
-    MAX_CHUNKS_PER_DOCUMENT: int = 800  # Increased limit
+    CHUNK_SIZE: int = 400  # Increased from 256 for fewer chunks
+    CHUNK_OVERLAP: int = 50  # Reduced from 64 for faster processing  
+    MAX_CHUNKS_PER_DOCUMENT: int = 150  # Limit total chunks for speed
     
     # Advanced Chunking Configuration
     ENABLE_SEMANTIC_CHUNKING: bool = True
-    SENTENCE_OVERLAP: int = 2  # Sentences to overlap between chunks
-    MIN_CHUNK_SIZE: int = 100  # Minimum chunk size in characters
-    MAX_CHUNK_SIZE: int = 800  # Maximum chunk size in characters
+    SENTENCE_OVERLAP: int = 1  # Reduced overlap for speed
+    MIN_CHUNK_SIZE: int = 200  # Increased minimum for fewer small chunks
+    MAX_CHUNK_SIZE: int = 1000  # Increased maximum for larger chunks
     
     # LLM Configuration - OPTIMIZED
     LLM_MAX_TOKENS: int = 800  # Increased for better responses
@@ -70,24 +70,31 @@ class Settings(BaseSettings):
     REQUEST_TIMEOUT_SECONDS: int = 30
     TARGET_RESPONSE_TIME_SECONDS: int = 25
     
-    # Embedding Configuration - OPTIMIZED
+    # Embedding Configuration - OPTIMIZED FOR SPEED
     EMBEDDING_MODEL: str = "azure_openai"
     EMBEDDING_DIMENSION: int = 1536  # Fixed for OpenAI
-    SIMILARITY_THRESHOLD: float = 0.15  # CRITICAL FIX: More permissive threshold
-    TOP_K_RESULTS: int = 8  # CRITICAL FIX: More candidates
-    RERANK_TOP_K: int = 20  # For multi-stage retrieval
+    SIMILARITY_THRESHOLD: float = 0.15  # More permissive threshold
+    TOP_K_RESULTS: int = 12  # Increased for better retrieval
+    RERANK_TOP_K: int = 25  # For multi-stage retrieval
+    
+    # Parallel Processing Configuration
+    MAX_EMBEDDING_BATCH_SIZE: int = 32  # Larger batches for parallel processing
+    MAX_CONCURRENT_EMBEDDINGS: int = 4  # Parallel embedding generation
+    EMBEDDING_TIMEOUT_SECONDS: int = 10  # Reduced timeout
     
     # Context Window Configuration - OPTIMIZED
     MAX_CONTEXT_TOKENS: int = 3000  # CRITICAL FIX: Larger context window
     CONTEXT_BUFFER_TOKENS: int = 500  # Reserve tokens for question/response
     ENABLE_CONTEXT_COMPRESSION: bool = True
     
-    # Multi-Stage Retrieval Configuration
+    # Multi-Stage Retrieval Configuration - OPTIMIZED
     ENABLE_HYBRID_RETRIEVAL: bool = True
     ENABLE_QUERY_EXPANSION: bool = True
     ENABLE_RERANKING: bool = True
-    BM25_WEIGHT: float = 0.3  # Weight for keyword search in hybrid retrieval
-    SEMANTIC_WEIGHT: float = 0.7  # Weight for semantic search
+    BM25_WEIGHT: float = 0.4  # Increased weight for keyword search
+    SEMANTIC_WEIGHT: float = 0.6  # Balanced semantic search
+    HYBRID_TOP_K: int = 20  # Initial retrieval candidates
+    FINAL_TOP_K: int = 5  # Final reranked results
     
     # MongoDB Configuration (optional for caching)
     MONGODB_URL: Optional[str] = os.getenv("MONGODB_URL")

@@ -122,6 +122,13 @@ class SemanticChunker:
             chunking_time = time.time() - chunking_start
             total_time = time.time() - start_time
             
+            # Apply chunk limit for performance optimization
+            if len(chunks) > settings.MAX_CHUNKS_PER_DOCUMENT:
+                logger.info(f"Limiting chunks from {len(chunks)} to {settings.MAX_CHUNKS_PER_DOCUMENT} for performance")
+                # Keep the most diverse chunks (every nth chunk to maintain coverage)
+                step = len(chunks) // settings.MAX_CHUNKS_PER_DOCUMENT
+                chunks = chunks[::max(1, step)][:settings.MAX_CHUNKS_PER_DOCUMENT]
+            
             logger.info(f"Semantic chunking completed: {len(chunks)} chunks from {len(sentences)} sentences in {total_time:.3f}s (tokenize: {tokenize_time:.3f}s, chunking: {chunking_time:.3f}s)")
             return chunks
             
@@ -165,6 +172,14 @@ class SemanticChunker:
             logger.debug(f"Created word-based chunk {len(chunks)-1}: {len(chunk_words)} words, {len(chunk_text)} chars")
         
         total_time = time.time() - start_time
+        
+        # Apply chunk limit for performance optimization
+        if len(chunks) > settings.MAX_CHUNKS_PER_DOCUMENT:
+            logger.info(f"Limiting chunks from {len(chunks)} to {settings.MAX_CHUNKS_PER_DOCUMENT} for performance")
+            # Keep evenly distributed chunks to maintain document coverage
+            step = len(chunks) // settings.MAX_CHUNKS_PER_DOCUMENT
+            chunks = chunks[::max(1, step)][:settings.MAX_CHUNKS_PER_DOCUMENT]
+        
         logger.info(f"Word-based chunking completed: {len(chunks)} chunks from {len(words)} words in {total_time:.3f}s")
         
         return chunks
